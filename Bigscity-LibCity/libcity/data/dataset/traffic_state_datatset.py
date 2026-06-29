@@ -265,23 +265,21 @@ class TrafficStateDataset(AbstractDataset):
             dynafile = dynafile[data_col]
         else:  # 不指定则加载所有列
             dynafile = dynafile[dynafile.columns[2:]]  # 从time列开始所有列
-        # 求时间序列
-        self.timesolts = list(dynafile['time'][:int(dynafile.shape[0] / len(self.geo_ids))])
+        # 求时间序列（数据按 entity_id 分组，每隔 num_nodes 行取一个时间戳）
+        num_nodes = len(self.geo_ids)
+        self.timesolts = list(dynafile['time'][::num_nodes])
         self.idx_of_timesolts = dict()
         if not dynafile['time'].isna().any():  # 时间没有空值
             self.timesolts = list(map(lambda x: x.replace('T', ' ').replace('Z', ''), self.timesolts))
             self.timesolts = np.array(self.timesolts, dtype='datetime64[ns]')
             for idx, _ts in enumerate(self.timesolts):
                 self.idx_of_timesolts[_ts] = idx
-        # 转3-d数组
-        feature_dim = len(dynafile.columns) - 2
-        df = dynafile[dynafile.columns[-feature_dim:]]
+        # 转3-d数组（排除 dyna_id, type, time, entity_id 四列）
+        data_cols = [c for c in dynafile.columns if c not in ('dyna_id', 'type', 'time', 'entity_id')]
+        feature_dim = len(data_cols)
         len_time = len(self.timesolts)
-        data = []
-        for i in range(0, df.shape[0], len_time):
-            data.append(df[i:i + len_time].values)
-        data = np.array(data, dtype=np.float64)  # (len(self.geo_ids), len_time, feature_dim)
-        data = data.swapaxes(0, 1)  # (len_time, len(self.geo_ids), feature_dim)
+        df = dynafile[data_cols]
+        data = df.values.reshape(len_time, num_nodes, feature_dim).astype(np.float64)
         self._logger.info("Loaded file " + filename + '.dyna' + ', shape=' + str(data.shape))
         return data
 
