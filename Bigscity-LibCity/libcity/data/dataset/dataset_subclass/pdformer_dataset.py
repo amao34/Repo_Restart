@@ -1,8 +1,9 @@
 import os
+import warnings
 import numpy as np
 from fastdtw import fastdtw
 from tqdm import tqdm
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor
 from libcity.data.dataset import TrafficStatePointDataset
 from libcity.data.utils import generate_dataloader
 from tslearn.clustering import TimeSeriesKMeans, KShape
@@ -10,6 +11,7 @@ from tslearn.clustering import TimeSeriesKMeans, KShape
 
 def _compute_dtw_row(args):
     """Worker function for parallel DTW computation. Must be at module level for pickling."""
+    warnings.filterwarnings('ignore')
     i, data_mean, num_nodes, radius = args
     row = np.zeros(num_nodes)
     for j in range(i, num_nodes):
@@ -51,9 +53,9 @@ class PDFormerDataset(TrafficStatePointDataset):
                 'Computing DTW matrix ({} nodes, {} workers)...'.format(self.num_nodes, max_workers))
             tasks = [(i, data_mean, self.num_nodes, dtw_radius) for i in range(self.num_nodes)]
             with ProcessPoolExecutor(max_workers=max_workers) as executor:
-                futures = {executor.submit(_compute_dtw_row, t): t[0] for t in tasks}
-                for future in tqdm(as_completed(futures), total=self.num_nodes, desc='DTW'):
-                    i, row = future.result()
+                for i, row in tqdm(
+                        executor.map(_compute_dtw_row, tasks),
+                        total=self.num_nodes, desc='DTW', unit='node'):
                     dtw_distance[i] = row
             # Fill symmetric lower triangle
             for i in range(self.num_nodes):
