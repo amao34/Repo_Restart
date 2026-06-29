@@ -2,9 +2,19 @@ import os
 import numpy as np
 from fastdtw import fastdtw
 from tqdm import tqdm
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from libcity.data.dataset import TrafficStatePointDataset
 from libcity.data.utils import generate_dataloader
 from tslearn.clustering import TimeSeriesKMeans, KShape
+
+
+def _compute_dtw_row(args):
+    """Worker function for parallel DTW computation. Must be at module level for pickling."""
+    i, data_mean, num_nodes, radius = args
+    row = np.zeros(num_nodes)
+    for j in range(i, num_nodes):
+        row[j], _ = fastdtw(data_mean[:, i, :], data_mean[:, j, :], radius=radius)
+    return i, row
 
 
 class PDFormerDataset(TrafficStatePointDataset):
@@ -35,12 +45,21 @@ class PDFormerDataset(TrafficStatePointDataset):
                 [df[24 * self.points_per_hour * i: 24 * self.points_per_hour * (i + 1)]
                  for i in range(df.shape[0] // (24 * self.points_per_hour))], axis=0)
             dtw_distance = np.zeros((self.num_nodes, self.num_nodes))
-            for i in tqdm(range(self.num_nodes)):
-                for j in range(i, self.num_nodes):
-                    dtw_distance[i][j], _ = fastdtw(data_mean[:, i, :], data_mean[:, j, :], radius=6)
+            dtw_radius = self.config.get('dtw_radius', 6)
+            max_workers = self.config.get('dtw_workers', os.cpu_count())
+            self._logger.info(
+                'Computing DTW matrix ({} nodes, {} workers)...'.format(self.num_nodes, max_workers))
+            tasks = [(i, data_mean, self.num_nodes, dtw_radius) for i in range(self.num_nodes)]
+            with ProcessPoolExecutor(max_workers=max_workers) as executor:
+                futures = {executor.submit(_compute_dtw_row, t): t[0] for t in tasks}
+                for future in tqdm(as_completed(futures), total=self.num_nodes, desc='DTW'):
+                    i, row = future.result()
+                    dtw_distance[i] = row
+            # Fill symmetric lower triangle
             for i in range(self.num_nodes):
                 for j in range(i):
                     dtw_distance[i][j] = dtw_distance[j][i]
+            os.makedirs(os.path.dirname(cache_path), exist_ok=True)
             np.save(cache_path, dtw_distance)
         dtw_matrix = np.load(cache_path)
         self._logger.info('Load DTW matrix from {}'.format(cache_path))
