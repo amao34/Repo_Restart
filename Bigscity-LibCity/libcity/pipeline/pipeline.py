@@ -1,10 +1,10 @@
 import os
 from ray import tune
-from ray.tune.suggest.hyperopt import HyperOptSearch
-from ray.tune.suggest.bayesopt import BayesOptSearch
-from ray.tune.suggest.basic_variant import BasicVariantGenerator
-from ray.tune.schedulers import FIFOScheduler, ASHAScheduler, MedianStoppingRule
-from ray.tune.suggest import ConcurrencyLimiter
+from ray.tune.schedulers import (
+    FIFOScheduler,
+    ASHAScheduler,
+    MedianStoppingRule,
+)
 import json
 import torch
 import random
@@ -117,9 +117,28 @@ def parse_search_space(space_file):
     return search_space
 
 
-def hyper_parameter(task=None, model_name=None, dataset_name=None, config_file=None, space_file=None,
-                    scheduler=None, search_alg=None, other_args=None, num_samples=5, max_concurrent=1,
-                    cpu_per_trial=1, gpu_per_trial=1):
+def hyper_parameter(
+        task=None,
+        model_name=None,
+        dataset_name=None,
+        config_file=None,
+        space_file=None,
+        scheduler=None,
+        search_alg=None,
+        other_args=None,
+        num_samples=5,
+        max_concurrent=1,
+        cpu_per_trial=1,
+        gpu_per_trial=1):
+
+    # Ray 2.x uses ray.tune.search instead of ray.tune.suggest.
+    # Keep these optional HPO dependencies out of the normal training path.
+    from ray.tune.search.hyperopt import HyperOptSearch
+    from ray.tune.search.bayesopt import BayesOptSearch
+    from ray.tune.search.basic_variant import BasicVariantGenerator
+    from ray.tune.search import ConcurrencyLimiter
+
+    ...
     """ Use Ray tune to hyper parameter tune
 
     Args:
