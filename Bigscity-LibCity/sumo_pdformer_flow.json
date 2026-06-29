@@ -1,0 +1,28 @@
+{
+    "train_rate": 0.6,
+    "eval_rate": 0.2,
+
+    "input_window": 12,
+    "output_window": 12,
+
+    "scaler": "standard",
+    "load_external": true,
+    "normal_external": false,
+    "add_time_in_day": true,
+    "add_day_in_week": true,
+
+    "batch_size": 4,
+    "num_workers": 0,
+    "pad_with_last_sample": true,
+    "cache_dataset": false,
+
+    "max_epoch": 5,
+    "use_curriculum_learning": false,
+    "random_flip": false,
+
+    "set_loss": "mae",
+    "mode": "single",
+
+    "saved_model": true,
+    "seed": 2026
+}

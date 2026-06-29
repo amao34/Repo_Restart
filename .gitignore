@@ -1,0 +1,12 @@
+/.vscode
+/.idea
+
+# Bigscity-LibCity
+Bigscity-LibCity/raw_data/*
+Bigscity-LibCity/visualized_data/*
+Bigscity-LibCity/libcity/tmp/*
+Bigscity-LibCity/libcity/cache/*
+Bigscity-LibCity/libcity/*/__pycache__
+Bigscity-LibCity/libcity/*/*/__pycache__
+Bigscity-LibCity/libcity/log/*
+Bigscity-LibCity/scripts/__pycache__
