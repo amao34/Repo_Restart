@@ -74,6 +74,11 @@ class TrafficStateExecutor(AbstractExecutor):
         if self._epoch_num > 0:
             self.load_model_with_epoch(self._epoch_num)
         self.loss_func = self._build_train_loss()
+        self.grad_accmu_steps = max(
+         1,
+         int(self.config.get('grad_accmu_steps', 1))
+        )
+        self.optimizer.zero_grad()
 
     def save_model(self, cache_name):
         """
