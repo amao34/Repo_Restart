@@ -3,10 +3,9 @@ import pickle
 
 import numpy as np
 import pandas as pd
-from fastdtw import fastdtw
-from tqdm import tqdm
 
 from libcity.data.dataset import TrafficStatePointDataset
+from libcity.data.dataset.dtw_utils import compute_dtw_distance_matrix
 
 
 class STGODEDataset(TrafficStatePointDataset):
@@ -43,13 +42,12 @@ class STGODEDataset(TrafficStatePointDataset):
         # print(data_mean.shape)
         data_mean = data_mean.squeeze().T
         # print(data_mean.shape)
-        dtw_distance = np.zeros((self.num_nodes, self.num_nodes))
-        for i in tqdm(range(self.num_nodes)):
-            for j in range(i, self.num_nodes):
-                dtw_distance[i][j] = fastdtw(data_mean[i], data_mean[j], radius=6)[0]
-        for i in range(self.num_nodes):
-            for j in range(i):
-                dtw_distance[i][j] = dtw_distance[j][i]
+        dtw_distance = compute_dtw_distance_matrix(
+            data_mean,
+            radius=self.config.get('dtw_radius', 6),
+            workers=self.config.get('dtw_workers', os.cpu_count() or 1),
+            chunk_size=self.config.get('dtw_pair_chunk_size', 2048),
+            logger=self._logger)
         mean = np.mean(dtw_distance)
         std = np.std(dtw_distance)
         dtw_distance = (dtw_distance - mean) / std

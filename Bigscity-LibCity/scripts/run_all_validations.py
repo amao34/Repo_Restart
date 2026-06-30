@@ -7,8 +7,8 @@ Follows the corrected execution order:
   4. Gate 1: DataLoader dimensions
   5. Gate 2: Time alignment
   6. Smoke test (2-variable, 1 epoch)
-  7. Gate 3: Single-batch overfit (Flow-only)
-  8. Gate 4: Baseline training (Flow-only, 5 epochs) [optional]
+  7. Gate 3: Single-batch overfit capability probe (Flow-only)
+  8. Gate 4: Baseline training (Flow-only, 30 epochs) [optional]
 
 Usage:
     cd Bigscity-LibCity
@@ -74,8 +74,8 @@ def main():
     if not run_script('run_smoke_test.py', 'Smoke Test: 1 Epoch (2-variable)'):
         return 1
 
-    # Gate 3: Single-batch overfit (Flow-only)
-    if not run_script('validate_gate3_overfit.py', 'Gate 3: Single-Batch Overfit (Flow-only)'):
+    # Gate 3: Single-batch overfit capability probe (Flow-only)
+    if not run_script('validate_gate3_overfit.py', 'Gate 3: Single-Batch Overfit Probe (Flow-only)'):
         return 1
 
     print()
@@ -85,9 +85,8 @@ def main():
     print('Next step: Run Gate 4 baseline training:')
     print('  python scripts/run_baseline_training.py')
     print()
-    print('Then compare with HA baseline:')
-    print('  Flow R² > 0.612')
-    print('  Flow RMSE < 0.857')
+    print('Then compute the same-split HA baseline:')
+    print('  python scripts/run_ha_baseline.py')
     print('=' * 70)
 
     return 0

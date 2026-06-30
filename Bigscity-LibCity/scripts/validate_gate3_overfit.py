@@ -1,8 +1,10 @@
 """
-Gate 3: Single-batch overfit test.
+Gate 3: Single-batch overfit capability probe.
 
 Uses Flow-only smoke dataset (SUMO_BEIJING_FIXED_V2_FLOW_SMOKE).
 Train on a selected high-signal single batch with dropout/drop_path disabled.
+This is not a formal performance test: it intentionally selects a
+high-variance batch and uses MSE to make the R2 overfit check informative.
 Expected:
 - Loss decreases significantly
 - R² approaches 1
@@ -122,8 +124,9 @@ def main():
     set_random_seed(config.get('seed', 2026))
 
     print('=' * 60)
-    print('Gate 3: Single-Batch Overfit Test')
+    print('Gate 3: Single-Batch Overfit Capability Probe')
     print(f'Dataset: {dataset_name}')
+    print('Note: high-signal batch + MSE; not a formal MAE performance test.')
     print('=' * 60)
     print()
 

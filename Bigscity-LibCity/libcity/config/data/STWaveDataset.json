@@ -15,5 +15,8 @@
   "output_window": 12,
   "add_time_in_day": true,
   "add_day_in_week": true,
-  "normalized_k": 0
+  "normalized_k": 0,
+  "dtw_radius": 6,
+  "dtw_workers": null,
+  "dtw_pair_chunk_size": 2048
 }

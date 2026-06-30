@@ -34,7 +34,9 @@ from libcity.config import ConfigParser
 from libcity.data import get_dataset
 
 
-def check_dataloader(dataset_name, config_file, expected_output_dim, expected_traffic_cols):
+def check_dataloader(dataset_name, config_file, expected_output_dim,
+                     expected_traffic_cols, expected_num_nodes=1008,
+                     expected_input_window=12, expected_output_window=12):
     """Validate dataloader dimensions for a given dataset."""
     print()
     print('=' * 60)
@@ -92,9 +94,31 @@ def check_dataloader(dataset_name, config_file, expected_output_dim, expected_tr
     passed = True
     output_dim = data_feature.get('output_dim', 1)
     feature_dim = data_feature.get('feature_dim', 10)
+    expected_feature_dim = expected_output_dim + 1 + 7
 
     if output_dim != expected_output_dim:
         print(f'[FAIL] output_dim={output_dim}, expected {expected_output_dim}')
+        passed = False
+    if feature_dim != expected_feature_dim:
+        print(f'[FAIL] feature_dim={feature_dim}, expected {expected_feature_dim}')
+        passed = False
+    if X.shape[1] != expected_input_window:
+        print(f'[FAIL] X input_window={X.shape[1]}, expected {expected_input_window}')
+        passed = False
+    if X.shape[2] != expected_num_nodes:
+        print(f'[FAIL] X num_nodes={X.shape[2]}, expected {expected_num_nodes}')
+        passed = False
+    if X.shape[-1] != expected_feature_dim:
+        print(f'[FAIL] X feature_dim={X.shape[-1]}, expected {expected_feature_dim}')
+        passed = False
+    if y.shape[1] != expected_output_window:
+        print(f'[FAIL] y output_window={y.shape[1]}, expected {expected_output_window}')
+        passed = False
+    if y.shape[2] != expected_num_nodes:
+        print(f'[FAIL] y num_nodes={y.shape[2]}, expected {expected_num_nodes}')
+        passed = False
+    if y.shape[-1] != expected_feature_dim:
+        print(f'[FAIL] y feature_dim={y.shape[-1]}, expected {expected_feature_dim}')
         passed = False
 
     # Check traffic variable columns
@@ -113,6 +137,12 @@ def check_dataloader(dataset_name, config_file, expected_output_dim, expected_tr
     if feature_dim >= dow_end:
         dow_sum = X[..., dow_start:dow_end].sum(dim=-1)
         print(f'  X[..., {dow_start}:{dow_end}] (weekday): sum min={dow_sum.min().item():.4f}, max={dow_sum.max().item():.4f}')
+        if not torch.allclose(dow_sum, torch.ones_like(dow_sum), atol=1e-5):
+            print('[FAIL] weekday one-hot columns do not sum to 1.')
+            passed = False
+    else:
+        print(f'[FAIL] feature_dim={feature_dim} does not contain 7 weekday columns.')
+        passed = False
 
     print()
     if passed:

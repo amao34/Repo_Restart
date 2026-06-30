@@ -4,12 +4,12 @@ import torch
 from tqdm import tqdm
 import numpy as np
 import pandas as pd
-from fastdtw import fastdtw
 from scipy.spatial.distance import euclidean
 import pickle
 import os
 
 from libcity.data.dataset import TrafficStateGridDataset
+from libcity.data.dataset.dtw_utils import compute_dtw_distance_matrix
 
 
 class DMVSTNetDataset(TrafficStateGridDataset):
@@ -57,18 +57,13 @@ class DMVSTNetDataset(TrafficStateGridDataset):
                 mean = np.concatenate((mean, mean_i), axis=0)
 
         mean = mean.T
-        dtw_matrix = np.zeros((self.num_nodes, self.num_nodes))
-
-        for index_x in tqdm(range(self.num_nodes)):
-            for index_y in range(index_x, self.num_nodes):
-                x = mean[index_x]
-                y = mean[index_y]
-                distance, _ = fastdtw(x, y, dist=euclidean)
-                dtw_matrix[index_x][index_y] = distance
-
-        for i in range(self.num_nodes):
-            for j in range(0, i):
-                dtw_matrix[i][j] = dtw_matrix[j][i]
+        dtw_matrix = compute_dtw_distance_matrix(
+            mean,
+            radius=self.config.get('dtw_radius', 1),
+            dist=euclidean,
+            workers=self.config.get('dtw_workers', os.cpu_count() or 1),
+            chunk_size=self.config.get('dtw_pair_chunk_size', 2048),
+            logger=self._logger)
 
         std = np.std(dtw_matrix)
         dtw_matrix = dtw_matrix / std

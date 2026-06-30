@@ -1,55 +1,12 @@
 import os
 import warnings
 import numpy as np
-from fastdtw import fastdtw
-from tqdm import tqdm
-from concurrent.futures import ProcessPoolExecutor, as_completed
 from libcity.data.dataset import TrafficStatePointDataset
+from libcity.data.dataset.dtw_utils import compute_dtw_distance_matrix
 from libcity.data.utils import generate_dataloader
 
 warnings.filterwarnings('ignore', message='h5py not installed.*', category=UserWarning)
 from tslearn.clustering import TimeSeriesKMeans, KShape
-
-
-_DTW_DATA_MEAN = None
-_DTW_RADIUS = None
-
-
-def _init_dtw_worker(data_mean, radius):
-    """Initialize per-process DTW state to avoid pickling data for every task."""
-    global _DTW_DATA_MEAN, _DTW_RADIUS
-    warnings.filterwarnings('ignore')
-    _DTW_DATA_MEAN = data_mean
-    _DTW_RADIUS = radius
-
-
-def _iter_dtw_pair_chunks(num_nodes, chunk_size):
-    chunk = []
-    for i in range(num_nodes):
-        for j in range(i + 1, num_nodes):
-            chunk.append((i, j))
-            if len(chunk) >= chunk_size:
-                yield chunk
-                chunk = []
-    if chunk:
-        yield chunk
-
-
-def _compute_dtw_pairs(pair_chunk):
-    """Worker function for a balanced chunk of DTW node pairs."""
-    warnings.filterwarnings('ignore')
-    rows = np.empty(len(pair_chunk), dtype=np.int32)
-    cols = np.empty(len(pair_chunk), dtype=np.int32)
-    distances = np.empty(len(pair_chunk), dtype=np.float64)
-    for index, (i, j) in enumerate(pair_chunk):
-        rows[index] = i
-        cols[index] = j
-        distances[index], _ = fastdtw(
-            _DTW_DATA_MEAN[:, i, :],
-            _DTW_DATA_MEAN[:, j, :],
-            radius=_DTW_RADIUS
-        )
-    return rows, cols, distances
 
 
 class PDFormerDataset(TrafficStatePointDataset):
@@ -69,49 +26,45 @@ class PDFormerDataset(TrafficStatePointDataset):
         self.cluster_method = config.get("cluster_method", "kshape")
 
     def _get_dtw(self):
-        cache_path = './libcity/cache/dataset_cache/dtw_' + self.dataset + '.npy'
+        dtw_radius = self.config.get('dtw_radius', 6)
+        cache_name = 'dtw_{}_train{}_r{}_out{}.npy'.format(
+            self.dataset, self.train_rate, dtw_radius, self.output_dim)
+        cache_path = os.path.join('./libcity/cache/dataset_cache', cache_name)
         if os.path.exists(cache_path):
             dtw_matrix = np.load(cache_path)
             self._logger.info('Load DTW matrix from {}'.format(cache_path))
             return dtw_matrix
 
         for ind, filename in enumerate(self.data_files):
+            current_df = self._load_dyna(filename)
             if ind == 0:
-                df = self._load_dyna(filename)
+                df = current_df
             else:
-                df = np.concatenate((df, self._load_dyna(filename)), axis=0)
+                df = np.concatenate((df, current_df), axis=0)
 
-        data_mean = np.mean(
-            [df[24 * self.points_per_hour * i: 24 * self.points_per_hour * (i + 1)]
-             for i in range(df.shape[0] // (24 * self.points_per_hour))], axis=0)
-        dtw_distance = np.zeros((self.num_nodes, self.num_nodes))
-        dtw_radius = self.config.get('dtw_radius', 6)
-        max_workers = self.config.get('dtw_workers', os.cpu_count() or 1)
-        max_workers = max(1, int(max_workers))
-        chunk_size = max(1, int(self.config.get('dtw_pair_chunk_size', 2048)))
-        total_pairs = self.num_nodes * (self.num_nodes - 1) // 2
+        points_per_day = 24 * 3600 // self.time_intervals
+        total_days = df.shape[0] // points_per_day
+        train_days = max(1, int(total_days * self.train_rate))
+        train_steps = train_days * points_per_day
+        train_df = df[:train_steps, :, :self.output_dim]
+        daily_data = train_df.reshape(
+            train_days, points_per_day, self.num_nodes, self.output_dim)
+        data_mean = daily_data.mean(axis=0)
+
         self._logger.info(
-            'Computing DTW matrix ({} nodes, {} workers, {} pairs, chunk_size={})...'.format(
-                self.num_nodes, max_workers, total_pairs, chunk_size))
-
-        pair_chunks = list(_iter_dtw_pair_chunks(self.num_nodes, chunk_size))
-        with ProcessPoolExecutor(
-                max_workers=max_workers,
-                initializer=_init_dtw_worker,
-                initargs=(data_mean, dtw_radius)) as executor:
-            futures = [executor.submit(_compute_dtw_pairs, chunk) for chunk in pair_chunks]
-            with tqdm(total=total_pairs, desc='DTW', unit='pair') as pbar:
-                for future in as_completed(futures):
-                    rows, cols, distances = future.result()
-                    dtw_distance[rows, cols] = distances
-                    dtw_distance[cols, rows] = distances
-                    pbar.update(len(distances))
+            'Computing DTW from train split only: total_days={}, '
+            'train_days={}, train_steps={}'.format(
+                total_days, train_days, train_steps))
+        dtw_workers = self.config.get('dtw_workers', os.cpu_count() or 1)
+        chunk_size = max(1, int(self.config.get('dtw_pair_chunk_size', 2048)))
+        dtw_distance = compute_dtw_distance_matrix(
+            np.swapaxes(data_mean, 0, 1), radius=dtw_radius,
+            workers=dtw_workers, chunk_size=chunk_size, logger=self._logger)
 
         os.makedirs(os.path.dirname(cache_path), exist_ok=True)
         np.save(cache_path, dtw_distance)
-        dtw_matrix = np.load(cache_path)
-        self._logger.info('Load DTW matrix from {}'.format(cache_path))
-        return dtw_matrix
+        self._logger.info('Saved DTW matrix at {}'.format(cache_path))
+        return dtw_distance
 
     def _load_rel(self):
         self.sd_mx = None
@@ -178,8 +131,11 @@ class PDFormerDataset(TrafficStatePointDataset):
                                 self.batch_size, self.num_workers, pad_with_last_sample=self.pad_with_last_sample)
         self.num_batches = len(self.train_dataloader)
         self.pattern_key_file = os.path.join(
-            './libcity/cache/dataset_cache/', 'pattern_keys_{}_{}_{}_{}_{}_{}'.format(
-                self.cluster_method, self.dataset, self.cand_key_days, self.s_attn_size, self.n_cluster, self.cluster_max_iter))
+            './libcity/cache/dataset_cache/',
+            'pattern_keys_{}_{}_train{}_out{}_{}_days{}_s{}_k{}_iter{}'.format(
+                self.cluster_method, self.dataset, self.train_rate,
+                self.output_dim, self.scaler_type, self.cand_key_days,
+                self.s_attn_size, self.n_cluster, self.cluster_max_iter))
         if not os.path.exists(self.pattern_key_file + '.npy'):
             cand_key_time_steps = self.cand_key_days * self.points_per_day
             pattern_cand_keys = x_train[:cand_key_time_steps, :self.s_attn_size, :, :self.output_dim].swapaxes(1, 2).reshape(-1, self.s_attn_size, self.output_dim)

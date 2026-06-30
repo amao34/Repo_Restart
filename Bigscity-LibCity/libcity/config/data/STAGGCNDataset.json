@@ -14,5 +14,8 @@
   "add_time_in_day": false,
   "add_day_in_week": false,
   "load_from_local": true,
-  "use_row_column": false
+  "use_row_column": false,
+  "dtw_radius": 1,
+  "dtw_workers": null,
+  "dtw_pair_chunk_size": 2048
 }

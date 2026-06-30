@@ -1,5 +1,5 @@
 """
-Gate 4: Baseline training (5 epochs) on Flow-only dataset.
+Gate 4: Baseline training (30 epochs) on Flow-only dataset.
 
 Dataset: SUMO_BEIJING_FIXED_V2_FLOW
 Config: sumo_pdformer_flow (output_dim=1, set_loss=mae)
@@ -28,7 +28,7 @@ from libcity.pipeline import run_model
 
 def main():
     print('=' * 60)
-    print('Gate 4: Baseline Training (5 epochs)')
+    print('Gate 4: Baseline Training (30 epochs)')
     print('Dataset: SUMO_BEIJING_FIXED_V2_FLOW')
     print('Config: sumo_pdformer_flow')
     print('Output: Flow-only (output_dim=1)')

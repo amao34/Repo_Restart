@@ -24,9 +24,13 @@ from libcity.config import ConfigParser
 from libcity.data import get_dataset
 
 
-def main():
-    dataset_name = 'SUMO_BEIJING_FIXED_V2_SMOKE'
-    config_file = 'sumo_pdformer_smoke'
+def check_time_alignment(dataset_name, config_file, expected_traffic_cols):
+    print('=' * 60)
+    print('Gate 2: Time Alignment Validation')
+    print(f'Dataset: {dataset_name}')
+    print(f'Config: {config_file}')
+    print('=' * 60)
+    print()
 
     other_args = {
         'dataset': dataset_name,
@@ -43,11 +47,6 @@ def main():
         train=True,
         other_args=other_args,
     )
-
-    print('=' * 60)
-    print('Gate 2: Time Alignment Validation')
-    print('=' * 60)
-    print()
 
     # Load dataset
     print('Loading dataset...')
@@ -97,28 +96,57 @@ def main():
         y = batch['y']
         break
 
-    tod_x_last = X[0, -1, 0, 2].item()  # last input step, node 0
-    tod_y_first = y[0, 0, 0, 2].item()   # first output step, node 0
+    tod_idx = len(expected_traffic_cols)
+    tod_x_last = X[0, -1, 0, tod_idx].item()  # last input step, node 0
+    tod_y_first = y[0, 0, 0, tod_idx].item()   # first output step, node 0
 
     print(f'  X last step time-of-day:  {tod_x_last:.6f}')
     print(f'  y first step time-of-day: {tod_y_first:.6f}')
+    print(f'  time-of-day feature index: {tod_idx}')
 
     step_increment = 5.0 / 1440.0
-    expected_y_first = tod_x_last + step_increment
+    expected_y_first = (tod_x_last + step_increment) % 1.0
     print(f'  Expected y first step:    {expected_y_first:.6f}')
 
     if abs(tod_y_first - expected_y_first) < 0.001:
         print('  [PASS] Time-of-day feature increment is correct.')
     else:
-        print(f'  [WARN] Time-of-day feature mismatch (may wrap around midnight).')
+        print('  [FAIL] Time-of-day feature mismatch.')
+        passed = False
 
     print()
     if passed:
-        print('[PASS] Gate 2: Time alignment validation passed.')
+        print(f'[PASS] Gate 2 ({dataset_name}): Time alignment validation passed.')
     else:
-        print('[FAIL] Gate 2: Time alignment check failed.')
+        print(f'[FAIL] Gate 2 ({dataset_name}): Time alignment check failed.')
 
-    return 0 if passed else 1
+    return passed
+
+
+def main():
+    all_passed = True
+
+    if not check_time_alignment(
+        dataset_name='SUMO_BEIJING_FIXED_V2_SMOKE',
+        config_file='sumo_pdformer_smoke',
+        expected_traffic_cols=['traffic_flow', 'traffic_speed']
+    ):
+        all_passed = False
+
+    flow_smoke_dir = os.path.join(
+        PROJECT_DIR, 'raw_data', 'SUMO_BEIJING_FIXED_V2_FLOW_SMOKE'
+    )
+    if os.path.exists(flow_smoke_dir):
+        if not check_time_alignment(
+            dataset_name='SUMO_BEIJING_FIXED_V2_FLOW_SMOKE',
+            config_file='sumo_pdformer_flow',
+            expected_traffic_cols=['traffic_flow']
+        ):
+            all_passed = False
+    else:
+        print('\n[SKIP] SUMO_BEIJING_FIXED_V2_FLOW_SMOKE not found.')
+
+    return 0 if all_passed else 1
 
 
 if __name__ == '__main__':

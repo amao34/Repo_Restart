@@ -16,11 +16,15 @@
     "pad_with_last_sample": true,
     "cache_dataset": false,
 
-    "max_epoch": 5,
+    "max_epoch": 30,
     "use_curriculum_learning": false,
     "random_flip": false,
 
     "set_loss": "mae",
+    "lr_warmup_epoch": 5,
+    "use_early_stop": true,
+    "patience": 8,
+    "load_best_epoch": true,
     "mode": "single",
 
     "saved_model": true,

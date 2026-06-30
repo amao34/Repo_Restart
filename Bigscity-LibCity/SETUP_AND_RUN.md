@@ -21,8 +21,10 @@
 | `scripts/validate_gate2_time_alignment.py` | Validate time alignment |
 | `scripts/validate_gate3_overfit.py` | Single-batch overfit test |
 | `scripts/run_smoke_test.py` | 1 epoch smoke test (2-variable) |
-| `scripts/run_baseline_training.py` | 5 epoch baseline (Flow-only) |
+| `scripts/run_baseline_training.py` | 30 epoch baseline (Flow-only) |
+| `scripts/run_ha_baseline.py` | Same-split Historical Average baseline |
 | `scripts/run_all_validations.py` | Run all gates in sequence |
+| `libcity/data/dataset/dtw_utils.py` | Shared parallel DTW distance helper |
 
 ---
 
@@ -70,8 +72,11 @@ python scripts/run_smoke_test.py
 # Gate 3: Single-batch overfit (Flow-only)
 python scripts/validate_gate3_overfit.py
 
-# Gate 4: 5 epoch baseline training (Flow-only)
+# Gate 4: 30 epoch baseline training (Flow-only)
 python scripts/run_baseline_training.py
+
+# Same-split Historical Average baseline
+python scripts/run_ha_baseline.py
 ```
 
 ---
@@ -107,8 +112,10 @@ Cannot set `output_dim=1` on the 2-variable dataset because PDFormer uses `outpu
 ```json
 {
     "batch_size": 4,
-    "max_epoch": 5,
+    "max_epoch": 30,
     "set_loss": "mae",
+    "lr_warmup_epoch": 5,
+    "patience": 8,
     "cache_dataset": false
 }
 ```
@@ -119,8 +126,8 @@ Cannot set `output_dim=1` on the 2-variable dataset because PDFormer uses `outpu
 
 ## First Run Notes
 
-1. **DTW computation is slow**: First run computes DTW for 1008 nodes (~10-30 min)
-2. **K-Shape clustering**: Also slow on first run, cached after
+1. **DTW computation is train-only and parallelized**: First run computes DTW for 1008 nodes using only the train split. Cache names include train rate, radius, and output_dim, for example `dtw_SUMO_BEIJING_FIXED_V2_FLOW_train0.6_r6_out1.npy`.
+2. **K-Shape clustering**: Also slow on first run. Cache names include train rate, output_dim, scaler, candidate days, cluster count, and max iterations.
 3. **After success**: Back up cache to `cache_backup/`
 
 ### Expected Shapes

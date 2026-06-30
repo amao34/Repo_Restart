@@ -3,13 +3,13 @@ import os
 import datetime
 import numpy as np
 import pandas as pd
-from fastdtw import fastdtw
 import scipy.sparse as sp
 from scipy.sparse.linalg import eigsh
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import dijkstra
 
 from libcity.data.dataset import TrafficStatePointDataset
+from libcity.data.dataset.dtw_utils import compute_dtw_distance_matrix
 from libcity.utils import ensure_dir
 
 
@@ -126,13 +126,12 @@ class STWaveDataset(TrafficStatePointDataset):
             data_mean = np.mean([data[24 * 12 * i: 24 * 12 * (i + 1)] for i in range(data.shape[0] // (24 * 12))],
                                 axis=0)
             data_mean = data_mean.squeeze().T
-            dtw_distance = np.zeros((num_node, num_node))
-            for i in range(num_node):
-                for j in range(i, num_node):
-                    dtw_distance[i][j] = fastdtw(data_mean[i], data_mean[j], radius=6)[0]
-            for i in range(num_node):
-                for j in range(i):
-                    dtw_distance[i][j] = dtw_distance[j][i]
+            dtw_distance = compute_dtw_distance_matrix(
+                data_mean,
+                radius=self.config.get('dtw_radius', 6),
+                workers=self.config.get('dtw_workers', os.cpu_count() or 1),
+                chunk_size=self.config.get('dtw_pair_chunk_size', 2048),
+                logger=self._logger)
 
             nth = np.sort(dtw_distance.reshape(-1))[
                   int(np.log2(dtw_distance.shape[0]) * dtw_distance.shape[0]):
