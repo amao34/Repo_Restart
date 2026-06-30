@@ -25,7 +25,7 @@ sys.path.insert(0, PROJECT_DIR)
 
 from libcity.config import ConfigParser
 from libcity.data import get_dataset
-from libcity.model import get_model
+from libcity.utils import get_model
 
 
 def calculate_normalized_laplacian(adj):
