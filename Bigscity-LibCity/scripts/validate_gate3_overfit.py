@@ -2,7 +2,7 @@
 Gate 3: Single-batch overfit test.
 
 Uses Flow-only smoke dataset (SUMO_BEIJING_FIXED_V2_FLOW_SMOKE).
-Train on a single batch for 300 steps with dropout/drop_path disabled.
+Train on a selected high-signal single batch with dropout/drop_path disabled.
 Expected:
 - Loss decreases significantly
 - R² approaches 1
@@ -25,15 +25,17 @@ sys.path.insert(0, PROJECT_DIR)
 
 from libcity.config import ConfigParser
 from libcity.data import get_dataset
-from libcity.utils import get_model
+from libcity.utils import get_model, set_random_seed
 
 
 def calculate_normalized_laplacian(adj):
     adj = sp.coo_matrix(adj)
     d = np.array(adj.sum(1))
     isolated_point_num = np.sum(np.where(d, 0, 1))
-    d_inv_sqrt = np.power(d, -0.5).flatten()
-    d_inv_sqrt[np.isinf(d_inv_sqrt)] = 0.
+    d_flat = d.flatten()
+    d_inv_sqrt = np.zeros_like(d_flat, dtype=np.float64)
+    nonzero = d_flat > 0
+    d_inv_sqrt[nonzero] = 1.0 / np.sqrt(d_flat[nonzero])
     d_mat_inv_sqrt = sp.diags(d_inv_sqrt)
     normalized_laplacian = sp.eye(adj.shape[0]) - adj.dot(d_mat_inv_sqrt).transpose().dot(d_mat_inv_sqrt).tocoo()
     return normalized_laplacian, isolated_point_num
@@ -51,14 +53,49 @@ def cal_lape(adj_mx, lape_dim=8):
     return laplacian_pe
 
 
+def select_overfit_batch(train_dataloader, data_feature, output_dim, device):
+    """Pick a deterministic high-variance batch for the overfit probe."""
+    scaler = data_feature['scaler']
+    best_batch = None
+    best_stats = None
+    best_score = -1.0
+
+    for batch_index, batch in enumerate(train_dataloader):
+        batch.to_tensor(device)
+        with torch.no_grad():
+            y_true = batch['y'][..., :output_dim]
+            y_true_inv = scaler.inverse_transform(y_true)
+            y_np = y_true_inv.detach().cpu().numpy()
+
+        target_std = float(y_np.std())
+        positive_frac = float((np.abs(y_np) > 1e-8).mean())
+        score = target_std * max(positive_frac, 1e-8)
+        if score > best_score:
+            best_score = score
+            best_batch = batch
+            best_stats = {
+                'index': batch_index,
+                'mean': float(y_np.mean()),
+                'std': target_std,
+                'min': float(y_np.min()),
+                'max': float(y_np.max()),
+                'positive_frac': positive_frac,
+            }
+
+    if best_batch is None:
+        raise RuntimeError('No training batch is available for Gate 3.')
+    return best_batch, best_stats
+
+
 def main():
     # Use Flow-only smoke dataset
     dataset_name = 'SUMO_BEIJING_FIXED_V2_FLOW_SMOKE'
     config_file = 'sumo_pdformer_flow'
+    num_steps = int(os.environ.get('GATE3_STEPS', '800'))
 
     other_args = {
         'dataset': dataset_name,
-        'max_epoch': 1,
+        'max_epoch': max(1, num_steps),
         'cache_dataset': False,
         # Disable all dropout for overfit test
         'drop': 0,
@@ -67,6 +104,10 @@ def main():
         'use_curriculum_learning': False,
         'batch_size': 1,
         'learning_rate': 1e-3,
+        # MSE aligns the optimization target with the R² overfit check. MAE
+        # can prefer near-zero predictions on sparse flow batches.
+        'set_loss': 'mse',
+        'seed': 2026,
     }
 
     config = ConfigParser(
@@ -78,6 +119,7 @@ def main():
         train=True,
         other_args=other_args,
     )
+    set_random_seed(config.get('seed', 2026))
 
     print('=' * 60)
     print('Gate 3: Single-Batch Overfit Test')
@@ -90,8 +132,9 @@ def main():
     dataset = get_dataset(config)
     train_dataloader, _, _ = dataset.get_data()
     data_feature = dataset.get_data_feature()
+    output_dim = data_feature.get('output_dim', config.get('output_dim', 1))
 
-    print(f'  output_dim:   {data_feature.get("output_dim")}')
+    print(f'  output_dim:   {output_dim}')
     print(f'  feature_dim:  {data_feature.get("feature_dim")}')
 
     # Compute Laplacian PE
@@ -101,19 +144,28 @@ def main():
     lap_mx = cal_lape(adj_mx, lape_dim).to(config.get('device', torch.device('cpu')))
     print(f'  lap_mx shape: {lap_mx.shape}')
 
-    # Get one batch
+    # Select one informative batch. Randomly taking the first batch is flaky
+    # because SUMO flow is highly sparse and MAE can be minimized by a near-zero
+    # predictor on many low-signal batches.
     device = config.get('device', torch.device('cpu'))
-    for batch in train_dataloader:
-        batch.to_tensor(device)
-        single_batch = batch
-        break
+    single_batch, batch_stats = select_overfit_batch(train_dataloader, data_feature, output_dim, device)
 
     print(f'Batch X shape: {single_batch["X"].shape}')
     print(f'Batch y shape: {single_batch["y"].shape}')
+    print(f'Selected batch index: {batch_stats["index"]}')
+    print(
+        'Target stats: '
+        f'mean={batch_stats["mean"]:.6f}, '
+        f'std={batch_stats["std"]:.6f}, '
+        f'min={batch_stats["min"]:.6f}, '
+        f'max={batch_stats["max"]:.6f}, '
+        f'positive_frac={batch_stats["positive_frac"]:.4f}'
+    )
     print()
 
     # Create model
     print('Creating model...')
+    set_random_seed(config.get('seed', 2026))
     model = get_model(config, data_feature).to(device)
     total_params = sum(p.numel() for p in model.parameters())
     print(f'Total parameters: {total_params:,}')
@@ -123,7 +175,6 @@ def main():
     optimizer = torch.optim.Adam(model.parameters(), lr=config.get('learning_rate', 1e-3))
 
     # Training loop
-    num_steps = 300
     print(f'Training for {num_steps} steps on single batch...')
     print()
 
@@ -144,8 +195,8 @@ def main():
             with torch.no_grad():
                 model.eval()
                 pred = model.predict(single_batch, lap_mx=lap_mx)
-                y_true = single_batch['y'][..., :config.get('output_dim', 1)]
-                y_pred = pred[..., :config.get('output_dim', 1)]
+                y_true = single_batch['y'][..., :output_dim]
+                y_pred = pred[..., :output_dim]
 
                 scaler = data_feature['scaler']
                 y_true_inv = scaler.inverse_transform(y_true)

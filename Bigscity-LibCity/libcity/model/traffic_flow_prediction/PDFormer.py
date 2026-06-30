@@ -356,7 +356,8 @@ class PDFormer(AbstractTrafficStateModel):
         self.step_size = config.get('step_size', 2500)
         self.max_epoch = config.get('max_epoch', 200)
         self.task_level = config.get('task_level', 0)
-        if self.max_epoch * self.num_batches * self.world_size < self.step_size * self.output_window:
+        if self.use_curriculum_learning and \
+                self.max_epoch * self.num_batches * self.world_size < self.step_size * self.output_window:
             self._logger.warning('Parameter `step_size` is too big with {} epochs and '
                                  'the model cannot be trained for all time steps.'.format(self.max_epoch))
         if self.use_curriculum_learning:
@@ -483,16 +484,13 @@ class PDFormer(AbstractTrafficStateModel):
         lf = self.get_loss_func(set_loss=set_loss)
         y_true = self._scaler.inverse_transform(y_true[..., :self.output_dim])
         y_predicted = self._scaler.inverse_transform(y_predicted[..., :self.output_dim])
-        if self.training:
+        if self.training and self.use_curriculum_learning:
             if batches_seen % self.step_size == 0 and self.task_level < self.output_window:
                 self.task_level += 1
                 self._logger.info('Training: task_level increase from {} to {}'.format(
                     self.task_level - 1, self.task_level))
                 self._logger.info('Current batches_seen is {}'.format(batches_seen))
-            if self.use_curriculum_learning:
-                return lf(y_predicted[:, :self.task_level, :, :], y_true[:, :self.task_level, :, :])
-            else:
-                return lf(y_predicted, y_true)
+            return lf(y_predicted[:, :self.task_level, :, :], y_true[:, :self.task_level, :, :])
         else:
             return lf(y_predicted, y_true)
 
