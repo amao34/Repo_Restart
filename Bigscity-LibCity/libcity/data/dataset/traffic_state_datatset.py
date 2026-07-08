@@ -35,6 +35,11 @@ class TrafficStateDataset(AbstractDataset):
         self.add_day_in_week = self.config.get('add_day_in_week', False)
         self.input_window = self.config.get('input_window', 12)
         self.output_window = self.config.get('output_window', 12)
+        self.output_dim = self.config.get('output_dim', 1)
+        if self.config.get('model') == 'PDFormer':
+            self.input_dim = self.config.get('input_dim', self.output_dim)
+        else:
+            self.input_dim = self.config.get('traffic_input_dim', self.output_dim)
         self.robustness_test = self.config.get('robustness_test', False)
         self.disturb_rate = self.config.get('disturb_rate', 0.5)
         self.noise_type = self.config.get('noise_type', 'none')
@@ -44,7 +49,8 @@ class TrafficStateDataset(AbstractDataset):
             str(self.dataset) + '_' + str(self.input_window) + '_' + str(self.output_window) + '_' \
             + str(self.train_rate) + '_' + str(self.eval_rate) + '_' + str(self.scaler_type) + '_' \
             + str(self.batch_size) + '_' + str(self.load_external) + '_' + str(self.add_time_in_day) + '_' \
-            + str(self.add_day_in_week) + '_' + str(self.pad_with_last_sample)
+            + str(self.add_day_in_week) + '_' + str(self.pad_with_last_sample) + '_' \
+            + 'in' + str(self.input_dim) + '_out' + str(self.output_dim)
         self.cache_file_name = os.path.join('./libcity/cache/dataset_cache/',
                                             'traffic_state_{}.npz'.format(self.parameters_str))
         self.cache_file_folder = './libcity/cache/dataset_cache/'
@@ -61,7 +67,6 @@ class TrafficStateDataset(AbstractDataset):
         self.rel_file = self.config.get('rel_file', self.dataset)
         self.data_files = self.config.get('data_files', self.dataset)
         self.ext_file = self.config.get('ext_file', self.dataset)
-        self.output_dim = self.config.get('output_dim', 1)
         self.time_intervals = self.config.get('time_intervals', 300)  # s
         self.init_weight_inf_or_zero = self.config.get('init_weight_inf_or_zero', 'inf')
         self.set_weight_link_or_dist = self.config.get('set_weight_link_or_dist', 'dist')
@@ -900,19 +905,34 @@ class TrafficStateDataset(AbstractDataset):
         Returns:
             Scaler: 归一化对象
         """
-        if scaler_type == "normal":
-            scaler = NormalScaler(maxx=max(x_train.max(), y_train.max()))
+        if x_train.shape[-1] == 0:
+            scaler = NoneScaler()
+            self._logger.info('NoneScaler for empty feature slice')
+        elif scaler_type == "normal":
+            axes = tuple(range(x_train.ndim - 1))
+            maxx = np.maximum(x_train.max(axis=axes), y_train.max(axis=axes))
+            maxx = np.where(maxx == 0, 1, maxx)
+            scaler = NormalScaler(maxx=maxx)
             self._logger.info('NormalScaler max: ' + str(scaler.max))
         elif scaler_type == "standard":
-            scaler = StandardScaler(mean=x_train.mean(), std=x_train.std())
+            axes = tuple(range(x_train.ndim - 1))
+            std = x_train.std(axis=axes)
+            std = np.where(std == 0, 1, std)
+            scaler = StandardScaler(mean=x_train.mean(axis=axes), std=std)
             self._logger.info('StandardScaler mean: ' + str(scaler.mean) + ', std: ' + str(scaler.std))
         elif scaler_type == "minmax01":
-            scaler = MinMax01Scaler(
-                maxx=max(x_train.max(), y_train.max()), minn=min(x_train.min(), y_train.min()))
+            axes = tuple(range(x_train.ndim - 1))
+            maxx = np.maximum(x_train.max(axis=axes), y_train.max(axis=axes))
+            minn = np.minimum(x_train.min(axis=axes), y_train.min(axis=axes))
+            maxx = np.where(maxx == minn, minn + 1, maxx)
+            scaler = MinMax01Scaler(maxx=maxx, minn=minn)
             self._logger.info('MinMax01Scaler max: ' + str(scaler.max) + ', min: ' + str(scaler.min))
         elif scaler_type == "minmax11":
-            scaler = MinMax11Scaler(
-                maxx=max(x_train.max(), y_train.max()), minn=min(x_train.min(), y_train.min()))
+            axes = tuple(range(x_train.ndim - 1))
+            maxx = np.maximum(x_train.max(axis=axes), y_train.max(axis=axes))
+            minn = np.minimum(x_train.min(axis=axes), y_train.min(axis=axes))
+            maxx = np.where(maxx == minn, minn + 1, maxx)
+            scaler = MinMax11Scaler(maxx=maxx, minn=minn)
             self._logger.info('MinMax11Scaler max: ' + str(scaler.max) + ', min: ' + str(scaler.min))
         elif scaler_type == "log":
             scaler = LogScaler()
@@ -969,24 +989,26 @@ class TrafficStateDataset(AbstractDataset):
             x_test = self._add_noise(x_test)
         # 数据归一化
         self.feature_dim = x_train.shape[-1]
-        self.ext_dim = self.feature_dim - self.output_dim
+        self.ext_dim = self.feature_dim - self.input_dim
         self.scaler = self._get_scalar(self.scaler_type,
                                        x_train[..., :self.output_dim], y_train[..., :self.output_dim])
+        self.input_scaler = self._get_scalar(self.scaler_type,
+                                             x_train[..., :self.input_dim], x_train[..., :self.input_dim])
         self.ext_scaler = self._get_scalar(self.ext_scaler_type,
-                                           x_train[..., self.output_dim:], y_train[..., self.output_dim:])
-        x_train[..., :self.output_dim] = self.scaler.transform(x_train[..., :self.output_dim])
+                                           x_train[..., self.input_dim:], y_train[..., self.input_dim:])
+        x_train[..., :self.input_dim] = self.input_scaler.transform(x_train[..., :self.input_dim])
         y_train[..., :self.output_dim] = self.scaler.transform(y_train[..., :self.output_dim])
-        x_val[..., :self.output_dim] = self.scaler.transform(x_val[..., :self.output_dim])
+        x_val[..., :self.input_dim] = self.input_scaler.transform(x_val[..., :self.input_dim])
         y_val[..., :self.output_dim] = self.scaler.transform(y_val[..., :self.output_dim])
-        x_test[..., :self.output_dim] = self.scaler.transform(x_test[..., :self.output_dim])
+        x_test[..., :self.input_dim] = self.input_scaler.transform(x_test[..., :self.input_dim])
         y_test[..., :self.output_dim] = self.scaler.transform(y_test[..., :self.output_dim])
         if self.normal_external:
-            x_train[..., self.output_dim:] = self.ext_scaler.transform(x_train[..., self.output_dim:])
-            y_train[..., self.output_dim:] = self.ext_scaler.transform(y_train[..., self.output_dim:])
-            x_val[..., self.output_dim:] = self.ext_scaler.transform(x_val[..., self.output_dim:])
-            y_val[..., self.output_dim:] = self.ext_scaler.transform(y_val[..., self.output_dim:])
-            x_test[..., self.output_dim:] = self.ext_scaler.transform(x_test[..., self.output_dim:])
-            y_test[..., self.output_dim:] = self.ext_scaler.transform(y_test[..., self.output_dim:])
+            x_train[..., self.input_dim:] = self.ext_scaler.transform(x_train[..., self.input_dim:])
+            y_train[..., self.input_dim:] = self.ext_scaler.transform(y_train[..., self.input_dim:])
+            x_val[..., self.input_dim:] = self.ext_scaler.transform(x_val[..., self.input_dim:])
+            y_val[..., self.input_dim:] = self.ext_scaler.transform(y_val[..., self.input_dim:])
+            x_test[..., self.input_dim:] = self.ext_scaler.transform(x_test[..., self.input_dim:])
+            y_test[..., self.input_dim:] = self.ext_scaler.transform(y_test[..., self.input_dim:])
         # 把训练集的X和y聚合在一起成为list，测试集验证集同理
         # x_train/y_train: (num_samples, input_length, ..., feature_dim)
         # train_data(list): train_data[i]是一个元组，由x_train[i]和y_train[i]组成

@@ -105,24 +105,26 @@ class PDFormerDataset(TrafficStatePointDataset):
             else:
                 x_train, y_train, x_val, y_val, x_test, y_test = self._generate_train_val_test()
         self.feature_dim = x_train.shape[-1]
-        self.ext_dim = self.feature_dim - self.output_dim
+        self.ext_dim = self.feature_dim - self.input_dim
         self.scaler = self._get_scalar(self.scaler_type,
                                        x_train[..., :self.output_dim], y_train[..., :self.output_dim])
+        self.input_scaler = self._get_scalar(self.scaler_type,
+                                             x_train[..., :self.input_dim], x_train[..., :self.input_dim])
         self.ext_scaler = self._get_scalar(self.ext_scaler_type,
-                                           x_train[..., self.output_dim:], y_train[..., self.output_dim:])
-        x_train[..., :self.output_dim] = self.scaler.transform(x_train[..., :self.output_dim])
+                                           x_train[..., self.input_dim:], y_train[..., self.input_dim:])
+        x_train[..., :self.input_dim] = self.input_scaler.transform(x_train[..., :self.input_dim])
         y_train[..., :self.output_dim] = self.scaler.transform(y_train[..., :self.output_dim])
-        x_val[..., :self.output_dim] = self.scaler.transform(x_val[..., :self.output_dim])
+        x_val[..., :self.input_dim] = self.input_scaler.transform(x_val[..., :self.input_dim])
         y_val[..., :self.output_dim] = self.scaler.transform(y_val[..., :self.output_dim])
-        x_test[..., :self.output_dim] = self.scaler.transform(x_test[..., :self.output_dim])
+        x_test[..., :self.input_dim] = self.input_scaler.transform(x_test[..., :self.input_dim])
         y_test[..., :self.output_dim] = self.scaler.transform(y_test[..., :self.output_dim])
         if self.normal_external:
-            x_train[..., self.output_dim:] = self.ext_scaler.transform(x_train[..., self.output_dim:])
-            y_train[..., self.output_dim:] = self.ext_scaler.transform(y_train[..., self.output_dim:])
-            x_val[..., self.output_dim:] = self.ext_scaler.transform(x_val[..., self.output_dim:])
-            y_val[..., self.output_dim:] = self.ext_scaler.transform(y_val[..., self.output_dim:])
-            x_test[..., self.output_dim:] = self.ext_scaler.transform(x_test[..., self.output_dim:])
-            y_test[..., self.output_dim:] = self.ext_scaler.transform(y_test[..., self.output_dim:])
+            x_train[..., self.input_dim:] = self.ext_scaler.transform(x_train[..., self.input_dim:])
+            y_train[..., self.input_dim:] = self.ext_scaler.transform(y_train[..., self.input_dim:])
+            x_val[..., self.input_dim:] = self.ext_scaler.transform(x_val[..., self.input_dim:])
+            y_val[..., self.input_dim:] = self.ext_scaler.transform(y_val[..., self.input_dim:])
+            x_test[..., self.input_dim:] = self.ext_scaler.transform(x_test[..., self.input_dim:])
+            y_test[..., self.input_dim:] = self.ext_scaler.transform(y_test[..., self.input_dim:])
         train_data = list(zip(x_train, y_train))
         eval_data = list(zip(x_val, y_val))
         test_data = list(zip(x_test, y_test))
@@ -155,5 +157,5 @@ class PDFormerDataset(TrafficStatePointDataset):
     def get_data_feature(self):
         return {"scaler": self.scaler, "adj_mx": self.adj_mx, "sd_mx": self.sd_mx, "sh_mx": self.sh_mx,
                 "ext_dim": self.ext_dim, "num_nodes": self.num_nodes, "feature_dim": self.feature_dim,
-                "output_dim": self.output_dim, "num_batches": self.num_batches,
+                "input_dim": self.input_dim, "output_dim": self.output_dim, "num_batches": self.num_batches,
                 "dtw_matrix": self.dtw_matrix, "pattern_keys": self.pattern_keys}

@@ -99,6 +99,12 @@ def masked_rmse_torch(preds, labels, null_val=np.nan, mask_val=None):
                                        null_val=null_val, mask_val=mask_val))
 
 
+def wape_torch(preds, labels, eps=1e-8):
+    numerator = torch.sum(torch.abs(preds - labels))
+    denominator = torch.clamp(torch.sum(torch.abs(labels)), min=eps)
+    return numerator / denominator
+
+
 def r2_score_torch(preds, labels):
     preds = preds.cpu().flatten()
     labels = labels.cpu().flatten()
@@ -154,6 +160,12 @@ def masked_mape_np(preds, labels, null_val=np.nan):
             preds, labels).astype('float32'), labels))
         mape = np.nan_to_num(mask * mape)
         return np.mean(mape)
+
+
+def wape_np(preds, labels, eps=1e-8):
+    numerator = np.sum(np.abs(np.subtract(preds, labels)))
+    denominator = max(np.sum(np.abs(labels)), eps)
+    return numerator / denominator
 
 
 def r2_score_np(preds, labels):

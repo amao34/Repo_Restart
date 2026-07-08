@@ -61,4 +61,5 @@ class TrafficStatePointDataset(TrafficStateDataset):
         """
         return {"scaler": self.scaler, "adj_mx": self.adj_mx, "ext_dim": self.ext_dim,
                 "num_nodes": self.num_nodes, "feature_dim": self.feature_dim,
-                "output_dim": self.output_dim, "num_batches": self.num_batches}
+                "input_dim": self.input_dim, "output_dim": self.output_dim,
+                "num_batches": self.num_batches}

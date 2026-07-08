@@ -1,13 +1,26 @@
-# PDFormer Baseline Setup Guide
+﻿# PDFormer Baseline Setup Guide
+
+## Current Route After Baseline Freeze
+
+- Formal network: `SUMO_BEIJING_FIXED_V2` with 1008 nodes.
+- Frozen Flow-only dataset: `SUMO_BEIJING_FIXED_V2_FLOW`.
+- Frozen Flow+Speed dataset: `raw_data/SUMO_BEIJING_FIXED_V2`, with
+  `SUMO_BEIJING_FIXED_V2_speed_valid.npz` as the speed-valid sidecar.
+- Frozen baseline tag: `baseline-flow-pdformer-fixed-v2`.
+- Next engineering step: run Flow+Speed input with Flow-only output before any
+  intent-fusion, FiLM, residual-gate, or closed-loop controller work.
+- Formal naming: use information-induced congestion or route-guidance-induced
+  congestion for the research problem. Braess-related terms are background only,
+  not method/module/metric names.
 
 ## Three Types of Config Files
 
-1. **Atomic dataset config** (`raw_data/SUMO_BEIJING_FIXED_V2/config.json`) — describes data schema
-2. **Model default config** (`libcity/config/model/traffic_state_pred/PDFormer.json`) — model hyperparams
-3. **Experiment override config** (root dir, e.g. `sumo_pdformer_smoke.json`) — overrides both above
+1. **Atomic dataset config** (`raw_data/SUMO_BEIJING_FIXED_V2/config.json`) - describes data schema
+2. **Model default config** (`libcity/config/model/traffic_state_pred/PDFormer.json`) - model hyperparams
+3. **Experiment override config** (root dir, e.g. `sumo_pdformer_smoke.json`) - overrides both above
 
 ## Modified Files
-- `libcity/model/traffic_flow_prediction/PDFormer.py` — added `self.set_loss` config support
+- `libcity/model/traffic_flow_prediction/PDFormer.py` - added `self.set_loss` config support
 
 ## New Files
 | File | Purpose |
@@ -22,6 +35,10 @@
 | `scripts/validate_gate3_overfit.py` | Single-batch overfit test |
 | `scripts/run_smoke_test.py` | 1 epoch smoke test (2-variable) |
 | `scripts/run_baseline_training.py` | 30 epoch baseline (Flow-only) |
+| `scripts/collect_sumo_flow_speed_dataset.py` | Re-collect full Flow+Speed dataset and Speed_Valid if the frozen artifact is unavailable |
+| `scripts/freeze_existing_flow_speed_dataset.py` | Restore/freeze an existing Flow+Speed artifact into `raw_data` |
+| `scripts/validate_flow_speed_dataset.py` | Validate full Flow+Speed dataset before training |
+| `scripts/run_flow_speed_to_flow_training.py` | Stage 2.1 Flow+Speed input, Flow output |
 | `scripts/run_ha_baseline.py` | Same-split Historical Average baseline |
 | `scripts/run_all_validations.py` | Run all gates in sequence |
 | `libcity/data/dataset/dtw_utils.py` | Shared parallel DTW distance helper |
@@ -63,6 +80,9 @@ python scripts/validate_loss_zero.py
 # Gate 1: DataLoader dimensions
 python scripts/validate_gate1_dataloader.py
 
+# Gate 1 uses the lightweight point dataset on smoke data.
+# It checks tensor layout only and intentionally skips PDFormer DTW/K-Shape.
+
 # Gate 2: Time alignment
 python scripts/validate_gate2_time_alignment.py
 
@@ -77,17 +97,27 @@ python scripts/run_baseline_training.py
 
 # Same-split Historical Average baseline
 python scripts/run_ha_baseline.py
+
+# Stage 2.1: Flow+Speed input, Flow-only output
+python scripts/run_flow_speed_to_flow_training.py
 ```
 
 ---
 
 ## Key Design Decisions
 
-### Why Two Datasets?
-- **SUMO_BEIJING_FIXED_V2**: 2 variables (flow + speed), `output_dim=2`
-- **SUMO_BEIJING_FIXED_V2_FLOW**: 1 variable (flow only), `output_dim=1`
+### Dataset Layout
+- **SUMO_BEIJING_FIXED_V2**: full Flow+Speed dataset. Stage 2.1 uses
+  `input_dim=2` and `output_dim=1`; Stage 2.2 will use joint Flow+Speed output.
+- **SUMO_BEIJING_FIXED_V2_FLOW**: frozen Flow-only baseline dataset,
+  `input_dim=1` and `output_dim=1`.
 
-Cannot set `output_dim=1` on the 2-variable dataset because PDFormer uses `output_dim` to determine feature indexing. Setting it to 1 would cause time features to be misaligned.
+PDFormer now separates:
+
+- `input_dim`: number of traffic variables read by PDFormer.
+- `output_dim`: number of traffic variables predicted and evaluated.
+
+Stage 2.1 uses `input_dim=2` and `output_dim=1`.
 
 ### Flow-only Dataset Layout
 ```
@@ -119,8 +149,8 @@ Cannot set `output_dim=1` on the 2-variable dataset because PDFormer uses `outpu
     "cache_dataset": false
 }
 ```
-- `set_loss: "mae"` — standard MAE, zero-flow targets contribute to loss
-- `set_loss: "masked_mae"` — masked MAE, zeros are excluded (81.2% of Flow data)
+- `set_loss: "mae"` - standard MAE, zero-flow targets contribute to loss
+- `set_loss: "masked_mae"` - masked MAE, zeros are excluded (81.2% of Flow data)
 
 ---
 
@@ -149,9 +179,10 @@ commit 5: test: add single-batch overfit check
 commit 6: baseline: train original PDFormer on SUMO dataset
 ```
 
-## After Baseline Passes
+## After Stage 2.1 Is Stable
 
-Only after Flow R² > 0.612 and RMSE < 0.857:
+Only after Flow+Speed input with Flow-only output is validated against the
+frozen Flow-only baseline:
 ```bash
 git checkout -b feature/intent-fusion
 ```

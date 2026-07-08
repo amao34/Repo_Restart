@@ -340,6 +340,7 @@ class PDFormer(AbstractTrafficStateModel):
         self.type_short_path = config.get("type_short_path", "hop")
 
         self.output_dim = config.get('output_dim', 1)
+        self.input_dim = config.get('input_dim', self.data_feature.get('input_dim', self.output_dim))
         self.input_window = config.get("input_window", 12)
         self.output_window = config.get('output_window', 12)
         add_time_in_day = config.get("add_time_in_day", True)
@@ -387,7 +388,7 @@ class PDFormer(AbstractTrafficStateModel):
         ])
 
         self.enc_embed_layer = DataEmbedding(
-            self.feature_dim - self.ext_dim, self.embed_dim, lape_dim, self.adj_mx, drop=drop,
+            self.input_dim, self.embed_dim, lape_dim, self.adj_mx, drop=drop,
             add_time_in_day=add_time_in_day, add_day_in_week=add_day_in_week, device=self.device,
         )
 

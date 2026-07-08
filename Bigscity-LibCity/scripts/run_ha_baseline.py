@@ -41,6 +41,7 @@ def metric_row(y_true, y_pred):
     mae = float(abs_err.mean())
     mse = float(sq_err.mean())
     rmse = float(np.sqrt(mse))
+    wape = float(abs_err.sum() / max(np.abs(y_true).sum(), 1e-8))
     masked_mae = float(masked_abs.mean()) if mask.any() else np.nan
     masked_mse = float(masked_sq.mean()) if mask.any() else np.nan
     masked_rmse = float(np.sqrt(masked_mse)) if mask.any() else np.nan
@@ -59,6 +60,7 @@ def metric_row(y_true, y_pred):
         'MAE': mae,
         'MSE': mse,
         'RMSE': rmse,
+        'WAPE': wape,
         'masked_MAE': masked_mae,
         'masked_MSE': masked_mse,
         'masked_RMSE': masked_rmse,

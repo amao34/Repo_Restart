@@ -36,7 +36,8 @@ from libcity.data import get_dataset
 
 def check_dataloader(dataset_name, config_file, expected_output_dim,
                      expected_traffic_cols, expected_num_nodes=1008,
-                     expected_input_window=12, expected_output_window=12):
+                     expected_input_dim=None, expected_input_window=12,
+                     expected_output_window=12):
     """Validate dataloader dimensions for a given dataset."""
     print()
     print('=' * 60)
@@ -46,6 +47,7 @@ def check_dataloader(dataset_name, config_file, expected_output_dim,
 
     other_args = {
         'dataset': dataset_name,
+        'dataset_class': 'TrafficStatePointDataset',
         'max_epoch': 1,
         'cache_dataset': False,
     }
@@ -62,6 +64,7 @@ def check_dataloader(dataset_name, config_file, expected_output_dim,
 
     print(f'\nConfig:')
     print(f'  dataset:       {config["dataset"]}')
+    print(f'  input_dim:     {config.get("input_dim", "N/A")}')
     print(f'  output_dim:    {config.get("output_dim", "N/A")}')
     print(f'  input_window:  {config.get("input_window", "N/A")}')
     print(f'  output_window: {config.get("output_window", "N/A")}')
@@ -75,6 +78,7 @@ def check_dataloader(dataset_name, config_file, expected_output_dim,
     print(f'\nData features:')
     print(f'  num_nodes:    {data_feature.get("num_nodes", "N/A")}')
     print(f'  feature_dim:  {data_feature.get("feature_dim", "N/A")}')
+    print(f'  input_dim:    {data_feature.get("input_dim", "N/A")}')
     print(f'  output_dim:   {data_feature.get("output_dim", "N/A")}')
     print(f'  ext_dim:      {data_feature.get("ext_dim", "N/A")}')
 
@@ -92,10 +96,16 @@ def check_dataloader(dataset_name, config_file, expected_output_dim,
 
     # Validate
     passed = True
+    if expected_input_dim is None:
+        expected_input_dim = expected_output_dim
     output_dim = data_feature.get('output_dim', 1)
+    input_dim = data_feature.get('input_dim', output_dim)
     feature_dim = data_feature.get('feature_dim', 10)
-    expected_feature_dim = expected_output_dim + 1 + 7
+    expected_feature_dim = expected_input_dim + 1 + 7
 
+    if input_dim != expected_input_dim:
+        print(f'[FAIL] input_dim={input_dim}, expected {expected_input_dim}')
+        passed = False
     if output_dim != expected_output_dim:
         print(f'[FAIL] output_dim={output_dim}, expected {expected_output_dim}')
         passed = False
@@ -127,7 +137,7 @@ def check_dataloader(dataset_name, config_file, expected_output_dim,
         print(f'  X[..., {i}] ({col_name}): min={X[..., i].min().item():.4f}, max={X[..., i].max().item():.4f}')
 
     # Check time-of-day
-    tod_idx = len(expected_traffic_cols)
+    tod_idx = expected_input_dim
     if feature_dim > tod_idx:
         print(f'  X[..., {tod_idx}] (time-of-day): min={X[..., tod_idx].min().item():.4f}, max={X[..., tod_idx].max().item():.4f}')
 
@@ -165,11 +175,22 @@ def main():
         dataset_name='SUMO_BEIJING_FIXED_V2_SMOKE',
         config_file='sumo_pdformer_smoke',
         expected_output_dim=2,
+        expected_input_dim=2,
         expected_traffic_cols=['traffic_flow', 'traffic_speed']
     ):
         all_passed = False
 
-    # Check 2: Flow-only smoke dataset (if exists)
+    # Check 2: Flow+Speed input with Flow-only output
+    if not check_dataloader(
+        dataset_name='SUMO_BEIJING_FIXED_V2_SMOKE',
+        config_file='sumo_pdformer_flow_speed_to_flow',
+        expected_output_dim=1,
+        expected_input_dim=2,
+        expected_traffic_cols=['traffic_flow', 'traffic_speed']
+    ):
+        all_passed = False
+
+    # Check 3: Flow-only smoke dataset (if exists)
     flow_smoke_dir = os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         'raw_data', 'SUMO_BEIJING_FIXED_V2_FLOW_SMOKE'
@@ -179,6 +200,7 @@ def main():
             dataset_name='SUMO_BEIJING_FIXED_V2_FLOW_SMOKE',
             config_file='sumo_pdformer_flow',
             expected_output_dim=1,
+            expected_input_dim=1,
             expected_traffic_cols=['traffic_flow']
         ):
             all_passed = False

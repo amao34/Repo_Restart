@@ -1,6 +1,12 @@
 import numpy as np
 
 
+def _match_data_type(value, data):
+    if hasattr(data, 'new_tensor'):
+        return data.new_tensor(value)
+    return value
+
+
 class Scaler:
     """
     归一化接口
@@ -53,10 +59,12 @@ class NormalScaler(Scaler):
         self.max = maxx
 
     def transform(self, data):
-        return data / self.max
+        maxx = _match_data_type(self.max, data)
+        return data / maxx
 
     def inverse_transform(self, data):
-        return data * self.max
+        maxx = _match_data_type(self.max, data)
+        return data * maxx
 
 
 class StandardScaler(Scaler):
@@ -70,10 +78,14 @@ class StandardScaler(Scaler):
         self.std = std
 
     def transform(self, data):
-        return (data - self.mean) / self.std
+        mean = _match_data_type(self.mean, data)
+        std = _match_data_type(self.std, data)
+        return (data - mean) / std
 
     def inverse_transform(self, data):
-        return (data * self.std) + self.mean
+        mean = _match_data_type(self.mean, data)
+        std = _match_data_type(self.std, data)
+        return (data * std) + mean
 
 
 class MinMax01Scaler(Scaler):
@@ -87,10 +99,14 @@ class MinMax01Scaler(Scaler):
         self.max = maxx
 
     def transform(self, data):
-        return (data - self.min) / (self.max - self.min)
+        minn = _match_data_type(self.min, data)
+        maxx = _match_data_type(self.max, data)
+        return (data - minn) / (maxx - minn)
 
     def inverse_transform(self, data):
-        return data * (self.max - self.min) + self.min
+        minn = _match_data_type(self.min, data)
+        maxx = _match_data_type(self.max, data)
+        return data * (maxx - minn) + minn
 
 
 class MinMax11Scaler(Scaler):
@@ -105,10 +121,14 @@ class MinMax11Scaler(Scaler):
         self.max = maxx
 
     def transform(self, data):
-        return ((data - self.min) / (self.max - self.min)) * 2. - 1.
+        minn = _match_data_type(self.min, data)
+        maxx = _match_data_type(self.max, data)
+        return ((data - minn) / (maxx - minn)) * 2. - 1.
 
     def inverse_transform(self, data):
-        return ((data + 1.) / 2.) * (self.max - self.min) + self.min
+        minn = _match_data_type(self.min, data)
+        maxx = _match_data_type(self.max, data)
+        return ((data + 1.) / 2.) * (maxx - minn) + minn
 
 
 class LogScaler(Scaler):
