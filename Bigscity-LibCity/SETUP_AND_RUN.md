@@ -7,8 +7,8 @@
 - Frozen Flow+Speed dataset: `raw_data/SUMO_BEIJING_FIXED_V2`, with
   `SUMO_BEIJING_FIXED_V2_speed_valid.npz` as the speed-valid sidecar.
 - Frozen baseline tag: `baseline-flow-pdformer-fixed-v2`.
-- Next engineering step: run Flow+Speed input with Flow-only output before any
-  intent-fusion, FiLM, residual-gate, or closed-loop controller work.
+- Current engineering step: run Stage 2.2, Flow+Speed input with joint
+  Flow+Speed output and Speed_Valid-masked speed loss/metrics.
 - Formal naming: use information-induced congestion or route-guidance-induced
   congestion for the research problem. Braess-related terms are background only,
   not method/module/metric names.
@@ -39,6 +39,10 @@
 | `scripts/freeze_existing_flow_speed_dataset.py` | Restore/freeze an existing Flow+Speed artifact into `raw_data` |
 | `scripts/validate_flow_speed_dataset.py` | Validate full Flow+Speed dataset before training |
 | `scripts/run_flow_speed_to_flow_training.py` | Stage 2.1 Flow+Speed input, Flow output |
+| `sumo_pdformer_flow_speed_joint.json` | Stage 2.2 Flow+Speed input, joint Flow+Speed output |
+| `scripts/validate_stage2_2_mask.py` | Validate Stage 2.2 Speed_Valid data wiring without DTW/K-Shape |
+| `scripts/run_flow_speed_joint_training.py` | Stage 2.2 Flow+Speed input, joint Flow+Speed output |
+| `libcity/evaluator/flow_speed_evaluator.py` | Flow/Speed separate metrics with Speed_Valid masking |
 | `scripts/run_ha_baseline.py` | Same-split Historical Average baseline |
 | `scripts/run_all_validations.py` | Run all gates in sequence |
 | `libcity/data/dataset/dtw_utils.py` | Shared parallel DTW distance helper |
@@ -100,6 +104,12 @@ python scripts/run_ha_baseline.py
 
 # Stage 2.1: Flow+Speed input, Flow-only output
 python scripts/run_flow_speed_to_flow_training.py
+
+# Stage 2.2: validate Speed_Valid wiring without DTW/K-Shape
+python scripts/validate_stage2_2_mask.py
+
+# Stage 2.2: Flow+Speed input, joint Flow+Speed output
+python scripts/run_flow_speed_joint_training.py
 ```
 
 ---
@@ -108,7 +118,8 @@ python scripts/run_flow_speed_to_flow_training.py
 
 ### Dataset Layout
 - **SUMO_BEIJING_FIXED_V2**: full Flow+Speed dataset. Stage 2.1 uses
-  `input_dim=2` and `output_dim=1`; Stage 2.2 will use joint Flow+Speed output.
+  `input_dim=2` and `output_dim=1`; Stage 2.2 uses `input_dim=2`,
+  `output_dim=2`, and Speed_Valid-masked speed loss/metrics.
 - **SUMO_BEIJING_FIXED_V2_FLOW**: frozen Flow-only baseline dataset,
   `input_dim=1` and `output_dim=1`.
 
@@ -118,6 +129,7 @@ PDFormer now separates:
 - `output_dim`: number of traffic variables predicted and evaluated.
 
 Stage 2.1 uses `input_dim=2` and `output_dim=1`.
+Stage 2.2 uses `input_dim=2` and `output_dim=2`.
 
 ### Flow-only Dataset Layout
 ```
@@ -158,7 +170,8 @@ Stage 2.1 uses `input_dim=2` and `output_dim=1`.
 
 1. **DTW computation is train-only and parallelized**: First run computes DTW for 1008 nodes using only the train split. Cache names include train rate, radius, and output_dim, for example `dtw_SUMO_BEIJING_FIXED_V2_FLOW_train0.6_r6_out1.npy`.
 2. **K-Shape clustering**: Also slow on first run. Cache names include train rate, output_dim, scaler, candidate days, cluster count, and max iterations.
-3. **After success**: Back up cache to `cache_backup/`
+3. **Stage 2.2 has separate `out2` caches**: the first joint Flow+Speed run will compute `dtw_SUMO_BEIJING_FIXED_V2_train0.6_r6_out2.npy` and `pattern_keys_kshape_SUMO_BEIJING_FIXED_V2_train0.6_out2_standard_days14_s3_k16_iter5.npy`.
+4. **After success**: Back up cache to `cache_backup/`
 
 ### Expected Shapes
 - DTW matrix: `(1008, 1008)`
@@ -179,10 +192,10 @@ commit 5: test: add single-batch overfit check
 commit 6: baseline: train original PDFormer on SUMO dataset
 ```
 
-## After Stage 2.1 Is Stable
+## After Stage 2.2 Is Stable
 
-Only after Flow+Speed input with Flow-only output is validated against the
-frozen Flow-only baseline:
+Only after joint Flow+Speed output is validated with Speed_Valid-masked speed
+metrics:
 ```bash
 git checkout -b feature/intent-fusion
 ```

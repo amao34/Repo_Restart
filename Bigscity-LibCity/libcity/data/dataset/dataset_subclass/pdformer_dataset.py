@@ -125,9 +125,17 @@ class PDFormerDataset(TrafficStatePointDataset):
             y_val[..., self.input_dim:] = self.ext_scaler.transform(y_val[..., self.input_dim:])
             x_test[..., self.input_dim:] = self.ext_scaler.transform(x_test[..., self.input_dim:])
             y_test[..., self.input_dim:] = self.ext_scaler.transform(y_test[..., self.input_dim:])
-        train_data = list(zip(x_train, y_train))
-        eval_data = list(zip(x_val, y_val))
-        test_data = list(zip(x_test, y_test))
+        if self.use_speed_valid_mask:
+            speed_valid_train, speed_valid_val, speed_valid_test = \
+                self._generate_speed_valid_train_val_test(
+                    x_train.shape[0] + x_val.shape[0] + x_test.shape[0])
+            train_data = list(zip(x_train, y_train, speed_valid_train))
+            eval_data = list(zip(x_val, y_val, speed_valid_val))
+            test_data = list(zip(x_test, y_test, speed_valid_test))
+        else:
+            train_data = list(zip(x_train, y_train))
+            eval_data = list(zip(x_val, y_val))
+            test_data = list(zip(x_test, y_test))
         self.train_dataloader, self.eval_dataloader, self.test_dataloader = \
             generate_dataloader(train_data, eval_data, test_data, self.feature_name,
                                 self.batch_size, self.num_workers, pad_with_last_sample=self.pad_with_last_sample)

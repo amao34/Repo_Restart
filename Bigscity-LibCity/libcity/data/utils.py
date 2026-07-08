@@ -51,15 +51,15 @@ def generate_dataloader(train_data, eval_data, test_data, feature_name,
             test_dataloader: Dataloader composed of Batch (class)
     """
     if pad_with_last_sample:
+        train_data = list(train_data)
+        eval_data = list(eval_data)
+        test_data = list(test_data)
         num_padding = (batch_size - (len(train_data) % batch_size)) % batch_size
-        data_padding = np.repeat(train_data[-1:], num_padding, axis=0)
-        train_data = np.concatenate([train_data, data_padding], axis=0)
+        train_data += [copy.deepcopy(train_data[-1]) for _ in range(num_padding)]
         num_padding = (batch_size - (len(eval_data) % batch_size)) % batch_size
-        data_padding = np.repeat(eval_data[-1:], num_padding, axis=0)
-        eval_data = np.concatenate([eval_data, data_padding], axis=0)
+        eval_data += [copy.deepcopy(eval_data[-1]) for _ in range(num_padding)]
         num_padding = (batch_size - (len(test_data) % batch_size)) % batch_size
-        data_padding = np.repeat(test_data[-1:], num_padding, axis=0)
-        test_data = np.concatenate([test_data, data_padding], axis=0)
+        test_data += [copy.deepcopy(test_data[-1]) for _ in range(num_padding)]
 
     train_dataset = ListDataset(train_data)
     eval_dataset = ListDataset(eval_data)

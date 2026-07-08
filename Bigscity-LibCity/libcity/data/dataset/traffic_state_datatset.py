@@ -40,6 +40,9 @@ class TrafficStateDataset(AbstractDataset):
             self.input_dim = self.config.get('input_dim', self.output_dim)
         else:
             self.input_dim = self.config.get('traffic_input_dim', self.output_dim)
+        self.use_speed_valid_mask = self.config.get('use_speed_valid_mask', False)
+        self.speed_valid_file = self.config.get(
+            'speed_valid_file', self.dataset + '_speed_valid.npz')
         self.robustness_test = self.config.get('robustness_test', False)
         self.disturb_rate = self.config.get('disturb_rate', 0.5)
         self.noise_type = self.config.get('noise_type', 'none')
@@ -78,6 +81,8 @@ class TrafficStateDataset(AbstractDataset):
         # 初始化
         self.data = None
         self.feature_name = {'X': 'float', 'y': 'float'}  # 此类的输入只有X和y
+        if self.use_speed_valid_mask:
+            self.feature_name['speed_valid_y'] = 'float'
         self.adj_mx = None
         self.scaler = None
         self.ext_scaler = None
@@ -770,6 +775,58 @@ class TrafficStateDataset(AbstractDataset):
         y = np.stack(y, axis=0)
         return x, y
 
+    def _load_speed_valid(self):
+        if os.path.isabs(self.speed_valid_file):
+            speed_valid_path = self.speed_valid_file
+        else:
+            speed_valid_path = os.path.join(self.data_path, self.speed_valid_file)
+        if not os.path.exists(speed_valid_path):
+            raise ValueError(
+                'Speed_Valid sidecar not found: {}'.format(speed_valid_path))
+        sidecar = np.load(speed_valid_path)
+        if 'speed_valid' not in sidecar:
+            raise ValueError(
+                'Speed_Valid sidecar must contain key `speed_valid`: {}'.format(
+                    speed_valid_path))
+        speed_valid = sidecar['speed_valid'].astype(np.float32)
+        if speed_valid.ndim != 2:
+            raise ValueError(
+                'Speed_Valid must be 2D (time, node), got {}'.format(
+                    speed_valid.shape))
+        if speed_valid.shape[1] != self.num_nodes:
+            raise ValueError(
+                'Speed_Valid node dimension {} does not match num_nodes {}'.format(
+                    speed_valid.shape[1], self.num_nodes))
+        self._logger.info(
+            'Loaded Speed_Valid sidecar {}, shape={}, valid_rate={:.6f}'.format(
+                speed_valid_path, speed_valid.shape, float(speed_valid.mean())))
+        return speed_valid
+
+    def _generate_speed_valid_y(self):
+        speed_valid = self._load_speed_valid()
+        _, y_mask = self._generate_input_data(speed_valid[..., np.newaxis])
+        return y_mask.astype(np.float32)
+
+    def _split_aux_train_val_test(self, aux):
+        test_rate = 1 - self.train_rate - self.eval_rate
+        num_samples = aux.shape[0]
+        num_test = round(num_samples * test_rate)
+        num_train = round(num_samples * self.train_rate)
+        num_val = num_samples - num_test - num_train
+        return (
+            aux[:num_train],
+            aux[num_train: num_train + num_val],
+            aux[-num_test:],
+        )
+
+    def _generate_speed_valid_train_val_test(self, expected_samples):
+        speed_valid_y = self._generate_speed_valid_y()
+        if speed_valid_y.shape[0] != expected_samples:
+            raise ValueError(
+                'Speed_Valid sample count {} does not match y sample count {}'.format(
+                    speed_valid_y.shape[0], expected_samples))
+        return self._split_aux_train_val_test(speed_valid_y)
+
     def _generate_data(self):
         """
         加载数据文件(.dyna/.grid/.od/.gridod)和外部数据(.ext)，且将二者融合，以X，y的形式返回
@@ -1012,9 +1069,17 @@ class TrafficStateDataset(AbstractDataset):
         # 把训练集的X和y聚合在一起成为list，测试集验证集同理
         # x_train/y_train: (num_samples, input_length, ..., feature_dim)
         # train_data(list): train_data[i]是一个元组，由x_train[i]和y_train[i]组成
-        train_data = list(zip(x_train, y_train))
-        eval_data = list(zip(x_val, y_val))
-        test_data = list(zip(x_test, y_test))
+        if self.use_speed_valid_mask:
+            speed_valid_train, speed_valid_val, speed_valid_test = \
+                self._generate_speed_valid_train_val_test(
+                    x_train.shape[0] + x_val.shape[0] + x_test.shape[0])
+            train_data = list(zip(x_train, y_train, speed_valid_train))
+            eval_data = list(zip(x_val, y_val, speed_valid_val))
+            test_data = list(zip(x_test, y_test, speed_valid_test))
+        else:
+            train_data = list(zip(x_train, y_train))
+            eval_data = list(zip(x_val, y_val))
+            test_data = list(zip(x_test, y_test))
         # 转Dataloader
         self.train_dataloader, self.eval_dataloader, self.test_dataloader = \
             generate_dataloader(train_data, eval_data, test_data, self.feature_name,

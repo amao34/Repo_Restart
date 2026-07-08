@@ -1,0 +1,56 @@
+{
+    "train_rate": 0.6,
+    "eval_rate": 0.2,
+
+    "input_window": 12,
+    "output_window": 12,
+
+    "data_col": ["traffic_flow", "traffic_speed"],
+    "input_dim": 2,
+    "output_dim": 2,
+
+    "scaler": "standard",
+    "load_external": true,
+    "normal_external": false,
+    "add_time_in_day": true,
+    "add_day_in_week": true,
+
+    "use_speed_valid_mask": true,
+    "speed_valid_file": "SUMO_BEIJING_FIXED_V2_speed_valid.npz",
+
+    "batch_size": 4,
+    "num_workers": 0,
+    "pad_with_last_sample": true,
+    "cache_dataset": false,
+
+    "max_epoch": 30,
+    "use_curriculum_learning": false,
+    "random_flip": false,
+
+    "set_loss": "flow_speed_masked_mae",
+    "flow_loss_weight": 1.0,
+    "speed_loss_weight": 1.0,
+
+    "evaluator": "FlowSpeedEvaluator",
+    "metrics": [
+        "Flow_MAE",
+        "Flow_RMSE",
+        "Flow_WAPE",
+        "Flow_R2",
+        "Flow_masked_MAPE",
+        "Speed_MAE",
+        "Speed_RMSE",
+        "Speed_WAPE",
+        "Speed_R2",
+        "Speed_MAPE",
+        "Speed_Valid_Rate"
+    ],
+    "lr_warmup_epoch": 5,
+    "use_early_stop": true,
+    "patience": 8,
+    "load_best_epoch": true,
+    "mode": "single",
+
+    "saved_model": true,
+    "seed": 2026
+}

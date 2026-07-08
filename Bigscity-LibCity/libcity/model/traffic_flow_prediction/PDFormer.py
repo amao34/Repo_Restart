@@ -352,6 +352,8 @@ class PDFormer(AbstractTrafficStateModel):
         self.far_mask_delta = config.get('far_mask_delta', 5)
         self.dtw_delta = config.get('dtw_delta', 5)
         self.set_loss = config.get('set_loss', 'masked_mae')
+        self.flow_loss_weight = config.get('flow_loss_weight', 1.0)
+        self.speed_loss_weight = config.get('speed_loss_weight', 1.0)
 
         self.use_curriculum_learning = config.get('use_curriculum_learning', True)
         self.step_size = config.get('step_size', 2500)
@@ -447,7 +449,8 @@ class PDFormer(AbstractTrafficStateModel):
 
     def get_loss_func(self, set_loss):
         if set_loss.lower() not in ['mae', 'mse', 'rmse', 'mape', 'logcosh', 'huber', 'quantile', 'masked_mae',
-                                           'masked_mse', 'masked_rmse', 'masked_mape', 'masked_huber', 'r2', 'evar']:
+                                           'masked_mse', 'masked_rmse', 'masked_mape', 'masked_huber', 'r2', 'evar',
+                                           'flow_speed_masked_mae']:
             self._logger.warning('Received unrecognized train loss function, set default mae loss func.')
         if set_loss.lower() == 'mae':
             lf = loss.masked_mae_torch
@@ -477,11 +480,26 @@ class PDFormer(AbstractTrafficStateModel):
             lf = loss.r2_score_torch
         elif set_loss.lower() == 'evar':
             lf = loss.explained_variance_score_torch
+        elif set_loss.lower() == 'flow_speed_masked_mae':
+            lf = loss.masked_mae_torch
         else:
             lf = loss.masked_mae_torch
         return lf
 
-    def calculate_loss_without_predict(self, y_true, y_predicted, batches_seen=None, set_loss='masked_mae'):
+    def _flow_speed_masked_mae(self, y_predicted, y_true, speed_valid_mask):
+        if self.output_dim < 2:
+            raise ValueError('flow_speed_masked_mae requires output_dim >= 2.')
+        if speed_valid_mask is None:
+            raise ValueError('flow_speed_masked_mae requires batch["speed_valid_y"].')
+        flow_loss = torch.mean(torch.abs(y_predicted[..., 0] - y_true[..., 0]))
+        speed_mask = speed_valid_mask.squeeze(-1).to(y_predicted.device).float()
+        speed_abs = torch.abs(y_predicted[..., 1] - y_true[..., 1])
+        speed_count = torch.clamp(speed_mask.sum(), min=1.0)
+        speed_loss = torch.sum(speed_abs * speed_mask) / speed_count
+        return self.flow_loss_weight * flow_loss + self.speed_loss_weight * speed_loss
+
+    def calculate_loss_without_predict(self, y_true, y_predicted, batches_seen=None,
+                                       set_loss='masked_mae', speed_valid_mask=None):
         lf = self.get_loss_func(set_loss=set_loss)
         y_true = self._scaler.inverse_transform(y_true[..., :self.output_dim])
         y_predicted = self._scaler.inverse_transform(y_predicted[..., :self.output_dim])
@@ -491,14 +509,22 @@ class PDFormer(AbstractTrafficStateModel):
                 self._logger.info('Training: task_level increase from {} to {}'.format(
                     self.task_level - 1, self.task_level))
                 self._logger.info('Current batches_seen is {}'.format(batches_seen))
-            return lf(y_predicted[:, :self.task_level, :, :], y_true[:, :self.task_level, :, :])
+            y_predicted = y_predicted[:, :self.task_level, :, :]
+            y_true = y_true[:, :self.task_level, :, :]
+            if speed_valid_mask is not None:
+                speed_valid_mask = speed_valid_mask[:, :self.task_level, :, :]
+        if set_loss.lower() == 'flow_speed_masked_mae':
+            return self._flow_speed_masked_mae(y_predicted, y_true, speed_valid_mask)
         else:
             return lf(y_predicted, y_true)
 
     def calculate_loss(self, batch, batches_seen=None, lap_mx=None):
         y_true = batch['y']
         y_predicted = self.predict(batch, lap_mx)
-        return self.calculate_loss_without_predict(y_true, y_predicted, batches_seen, set_loss=self.set_loss)
+        speed_valid_mask = batch['speed_valid_y'] if 'speed_valid_y' in batch.data else None
+        return self.calculate_loss_without_predict(
+            y_true, y_predicted, batches_seen, set_loss=self.set_loss,
+            speed_valid_mask=speed_valid_mask)
 
     def predict(self, batch, lap_mx=None):
         return self.forward(batch, lap_mx)

@@ -1,0 +1,17 @@
+{
+  "metrics": [
+    "Flow_MAE",
+    "Flow_RMSE",
+    "Flow_WAPE",
+    "Flow_R2",
+    "Flow_masked_MAPE",
+    "Speed_MAE",
+    "Speed_RMSE",
+    "Speed_WAPE",
+    "Speed_R2",
+    "Speed_MAPE",
+    "Speed_Valid_Rate"
+  ],
+  "evaluator_mode": "single",
+  "save_mode": ["csv"]
+}

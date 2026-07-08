@@ -403,7 +403,10 @@ class PDFormerExecutor(TrafficStateExecutor):
                 batch_lap_pos_enc = batch_lap_pos_enc * sign_flip.unsqueeze(0)
             y_true = batch['y']
             y_predicted = self.model(batch, batch_lap_pos_enc)
-            loss = loss_func(y_true, y_predicted, batches_seen=batches_seen, set_loss=self.set_loss)
+            speed_valid_mask = batch['speed_valid_y'] if 'speed_valid_y' in batch.data else None
+            loss = loss_func(
+                y_true, y_predicted, batches_seen=batches_seen,
+                set_loss=self.set_loss, speed_valid_mask=speed_valid_mask)
             self._logger.debug(loss.item())
             losses.append(loss.item())
             batches_seen += 1
@@ -429,7 +432,10 @@ class PDFormerExecutor(TrafficStateExecutor):
                 batch.to_tensor(self.device)
                 y_true = batch['y']
                 y_predicted = self.model(batch, self.lap_mx)
-                loss = loss_func(y_true, y_predicted, batches_seen=batches_seen, set_loss=self.set_loss)
+                speed_valid_mask = batch['speed_valid_y'] if 'speed_valid_y' in batch.data else None
+                loss = loss_func(
+                    y_true, y_predicted, batches_seen=batches_seen,
+                    set_loss=self.set_loss, speed_valid_mask=speed_valid_mask)
                 self._logger.debug(loss.item())
                 losses.append(loss.item())
             mean_loss = np.mean(losses)
@@ -442,6 +448,7 @@ class PDFormerExecutor(TrafficStateExecutor):
             self.model.eval()
             y_truths = []
             y_preds = []
+            speed_valids = []
             for batch in test_dataloader:
                 batch.to_tensor(self.device)
                 output = self.model.predict(batch, lap_mx=self.lap_mx)
@@ -449,14 +456,22 @@ class PDFormerExecutor(TrafficStateExecutor):
                 y_pred = self._scaler.inverse_transform(output[..., :self.output_dim])
                 y_truths.append(y_true.cpu().numpy())
                 y_preds.append(y_pred.cpu().numpy())
+                if 'speed_valid_y' in batch.data:
+                    speed_valids.append(batch['speed_valid_y'].cpu().numpy())
             y_preds = np.concatenate(y_preds, axis=0)
             y_truths = np.concatenate(y_truths, axis=0)
             outputs = {'prediction': y_preds, 'truth': y_truths}
+            if speed_valids:
+                speed_valids = np.concatenate(speed_valids, axis=0)
+                outputs['speed_valid'] = speed_valids
             filename = \
                 time.strftime("%Y_%m_%d_%H_%M_%S", time.localtime(time.time())) + '_' \
                 + self.config['model'] + '_' + self.config['dataset'] + '_predictions.npz'
             np.savez_compressed(os.path.join(self.evaluate_res_dir, filename), **outputs)
             self.evaluator.clear()
-            self.evaluator.collect({'y_true': torch.tensor(y_truths), 'y_pred': torch.tensor(y_preds)})
+            evaluate_input = {'y_true': torch.tensor(y_truths), 'y_pred': torch.tensor(y_preds)}
+            if isinstance(speed_valids, np.ndarray):
+                evaluate_input['speed_valid'] = torch.tensor(speed_valids)
+            self.evaluator.collect(evaluate_input)
             test_result = self.evaluator.save_result(self.evaluate_res_dir)
             return test_result

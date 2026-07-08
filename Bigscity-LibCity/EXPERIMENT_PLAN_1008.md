@@ -22,21 +22,23 @@ for the formal open-loop and closed-loop experiments.
    official state-model data source.
 4. Complete open-loop evaluation metrics: MAE, RMSE, R2, WAPE, horizon metrics,
    and masked MAPE as an auxiliary metric.
-5. Run Stage 2.1: Flow+Speed input with Flow-only output.
-6. Compare Stage 2.1 with the frozen Flow-only baseline. If Flow MAE degrades by
-   more than about 3% relative to 0.2489, inspect data alignment and loss setup
-   before moving to intent models.
-7. Only after Stage 2.1 is stable, build Stage 2.2 with joint Flow+Speed output,
-   speed-valid masking, and travel-time metrics.
-8. Only after the state model is stable, define route intent data:
+5. Stage 2.1 is frozen: Flow+Speed input with Flow-only output reached
+   Flow MAE about 0.2472 and is stable against the frozen Flow-only baseline.
+6. Run Stage 2.2: Flow+Speed input with joint Flow+Speed output.
+7. In Stage 2.2, train Speed only on `Speed_Valid=1` targets and report Flow
+   and Speed metrics separately.
+8. After Stage 2.2 is stable, add travel-time metrics.
+9. Only after the state model is stable, define route intent data:
    `A_plan`, `A_exec`, and `A_realized`.
 
 ## Current runnable entries
 
 ```bash
 python scripts/validate_gate1_dataloader.py
+python scripts/validate_stage2_2_mask.py
 python scripts/run_ha_baseline.py
 python scripts/run_flow_speed_to_flow_training.py
+python scripts/run_flow_speed_joint_training.py
 ```
 
 ## Frozen Flow+Speed Data
@@ -105,6 +107,35 @@ raw_data/SUMO_BEIJING_FIXED_V2/SUMO_BEIJING_FIXED_V2_speed_valid.npz
 
 It should be used for speed loss and speed metrics, but should not be treated as
 a third traffic variable in the first Flow+Speed state models.
+
+## Stage 2.2
+
+Stage 2.2 uses:
+
+```text
+config: sumo_pdformer_flow_speed_joint
+runner: scripts/run_flow_speed_joint_training.py
+dataset: SUMO_BEIJING_FIXED_V2
+input_dim: 2
+output_dim: 2
+loss: flow_speed_masked_mae
+evaluator: FlowSpeedEvaluator
+```
+
+Run the lightweight wiring check before formal training:
+
+```bash
+python scripts/validate_stage2_2_mask.py
+```
+
+Formal training:
+
+```bash
+python scripts/run_flow_speed_joint_training.py
+```
+
+The first formal Stage 2.2 run will build `out2` DTW and K-Shape caches. This
+is expected and can take several hours on the 1008-node full dataset.
 
 For smoke validation of Stage 2.1, `validate_gate1_dataloader.py` uses
 `SUMO_BEIJING_FIXED_V2_SMOKE` with `input_dim=2` and `output_dim=1`.
